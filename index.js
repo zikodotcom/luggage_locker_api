@@ -39,7 +39,7 @@ app.post("/login", async (req, res) => {
     });
 
     // Check if user exists and password matches
-    if (user && user.password === password) {
+    if (user && user.password === password && user.is_active) {
       // Generate JWT token
       const token = jwt.sign(
         { id: user.id, role: user.role },
@@ -57,6 +57,7 @@ app.post("/login", async (req, res) => {
         user: {
           email: user.email,
           first_name: user.first_name,
+          last_name: user.last_name,
           role: user.role,
         },
       });
@@ -108,12 +109,30 @@ app.delete("/user", async (req, res) => {
     res.status(500).json({ error: "Failed to delete user" });
   }
 });
-app.get("/user", async (req, res) => {
+app.get("/users", async (req, res) => {
   try {
-    const users = await prisma.user.findMany();
+    const users = await prisma.user.findMany({
+      where: { role: "USER" }, // Fetch only users with role 'USER'
+      orderBy: { first_name: "asc" }, // Sort users by first name in ascending order
+    });
     res.status(200).json(users);
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch users" });
+  }
+});
+app.put("/activate-user", async (req, res) => {
+  try {
+    const is_active = await prisma.user.findUnique({
+      where: { id: req.body.id },
+    });
+    const user = await prisma.user.update({
+      where: { id: req.body.id },
+      data: { is_active: !is_active.is_active }, // Toggle the isActive status
+    });
+    res.status(200).json(user);
+  } catch (error) {
+    console.error("Error activating/deactivating user:", error);
+    res.status(500).json({ error: "Failed to update user status" });
   }
 });
 
@@ -234,6 +253,139 @@ app.get("/city", async (req, res) => {
   } catch (error) {
     console.error("Error fetching cities:", error);
     res.status(500).json({ error: "Failed to fetch cities" });
+  }
+});
+
+// -------------- Place Routes -------------
+app.post("/place", async (req, res) => {
+  try {
+    const place = await prisma.place.create({
+      include: { city: true, lockers: true }, // Include city details in the response
+      data: req.body,
+    });
+    res.status(201).json(place);
+  } catch (error) {
+    console.error("Error creating place:", error);
+    res.status(500).json({ error: "Failed to create place" });
+  }
+});
+
+app.put("/place", async (req, res) => {
+  try {
+    const place = await prisma.place.update({
+      include: { city: true, lockers: true }, // Include city details in the response
+      where: { id: req.body.id },
+      data: req.body,
+    });
+    res.status(200).json(place);
+  } catch (error) {
+    console.error("Error updating place:", error);
+    res.status(500).json({ error: "Failed to update place" });
+  }
+});
+app.delete("/place", async (req, res) => {
+  try {
+    const place = await prisma.place.delete({
+      where: { id: req.body.id },
+    });
+    res.status(200).json(place);
+  } catch (error) {
+    console.error("Error deleting place:", error);
+    res.status(500).json({ error: "Failed to delete place" });
+  }
+});
+
+app.get("/place", async (req, res) => {
+  try {
+    const places = await prisma.place.findMany({
+      include: { city: true, lockers: true }, // Include city details in the response
+      orderBy: { name: "asc" }, // Sort places by name in ascending order
+    });
+    res.status(200).json(places);
+  } catch (error) {
+    console.error("Error fetching places:", error);
+    res.status(500).json({ error: "Failed to fetch places" });
+  }
+});
+app.get("/place/:id", async (req, res) => {
+  try {
+    const place = await prisma.place.findUnique({
+      where: { id: req.params.id },
+      include: { city: true, lockers: true }, // Include city details in the response
+    });
+    if (place) {
+      res.status(200).json(place);
+    } else {
+      res.status(404).json({ error: "Place not found" });
+    }
+  } catch (error) {
+    console.error("Error fetching place:", error);
+    res.status(500).json({ error: "Failed to fetch place" });
+  }
+});
+app.get("/counts", async (req, res) => {
+  try {
+    const userCount = await prisma.user.count();
+    const countryCount = await prisma.country.count();
+    const cityCount = await prisma.city.count();
+    const placeCount = await prisma.place.count();
+
+    res.status(200).json({
+      users: userCount,
+      countries: countryCount,
+      cities: cityCount,
+      places: placeCount,
+    });
+  } catch (error) {
+    console.error("Error fetching counts:", error);
+    res.status(500).json({ error: "Failed to fetch counts" });
+  }
+});
+
+// ------------------ Locker -------------
+app.post("/locker", async (req, res) => {
+  try {
+    const locker = await prisma.locker.create({
+      data: req.body,
+    });
+    res.status(201).json(locker);
+  } catch (error) {
+    console.error("Error creating locker:", error);
+    res.status(500).json({ error: "Failed to create locker" });
+  }
+});
+app.put("/locker", async (req, res) => {
+  try {
+    const locker = await prisma.locker.update({
+      where: { id: req.body.id },
+      data: req.body,
+    });
+    res.status(200).json(locker);
+  } catch (error) {
+    console.error("Error updating locker:", error);
+    res.status(500).json({ error: "Failed to update locker" });
+  }
+});
+app.delete("/locker", async (req, res) => {
+  try {
+    const locker = await prisma.locker.delete({
+      where: { id: req.body.id },
+    });
+    res.status(200).json(locker);
+  } catch (error) {
+    console.error("Error deleting locker:", error);
+    res.status(500).json({ error: "Failed to delete locker" });
+  }
+});
+app.get("/locker", async (req, res) => {
+  try {
+    const lockers = await prisma.locker.findMany({
+      orderBy: { name: "asc" }, // Sort lockers by name in ascending order
+    });
+    res.status(200).json(lockers);
+  } catch (error) {
+    console.error("Error fetching lockers:", error);
+    res.status(500).json({ error: "Failed to fetch lockers" });
   }
 });
 

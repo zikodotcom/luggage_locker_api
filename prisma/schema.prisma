@@ -24,6 +24,7 @@ model User {
   role       Role      @default(USER)
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
+  is_active  Boolean   @default(true)
   Booking    Booking[]
 }
 
@@ -54,12 +55,25 @@ model Place {
   address     String?
   latitude    Float?
   longitude   Float?
+  rating      Float?   @default(5)
   cityId      String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   city        City?    @relation(fields: [cityId], references: [id])
+  lockers     Locker[]
+}
 
-  Booking Booking[]
+model Locker {
+  id        String    @id @default(cuid())
+  name      String?
+  length    Int
+  width     Int
+  price     Float
+  placeId   String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  Place     Place?    @relation(fields: [placeId], references: [id])
+  Booking   Booking[]
 }
 
 model Booking {
@@ -71,7 +85,7 @@ model Booking {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   user      User?    @relation(fields: [userId], references: [id])
-  place     Place?   @relation(fields: [placeId], references: [id])
+  locker    Locker?  @relation(fields: [placeId], references: [id])
 }
 
 enum Role {
