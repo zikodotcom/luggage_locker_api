@@ -5,9 +5,12 @@ const prisma = new PrismaClient();
 const express = require("express");
 const cors = require("cors");
 const app = express();
-const port = 3000;
+const port = 5555;
 const jwt = require("jsonwebtoken");
 const multer = require("multer");
+const path = require("path");
+
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 var storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -18,6 +21,8 @@ var storage = multer.diskStorage({
   },
 });
 var upload = multer({ storage: storage });
+const cookieParser = require("cookie-parser");
+app.use(cookieParser());
 
 // Middleware to parse JSON bodies
 app.use(express.json());
@@ -27,6 +32,25 @@ app.use(
     credentials: true, // Allow cookies to be sent
   })
 );
+
+// Middleware to check JWT token
+const requireAuth = (req, res, next) => {
+  const token = req.cookies?.token;
+
+  // ? Check if token exists and verified
+  if (token) {
+    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decodedToken) => {
+      if (err) {
+        res.status(401).json({ message: "Unauthorized" });
+      } else {
+        req.user = decodedToken.id;
+        next();
+      }
+    });
+  } else {
+    res.status(401).json({ message: "Unauthorized" });
+  }
+};
 
 // ----------------- Authentication route -----------------
 app.post("/login", async (req, res) => {
@@ -66,6 +90,42 @@ app.post("/login", async (req, res) => {
     }
   } catch (error) {
     console.error("Error during login:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/create-admin", async (req, res) => {
+  const adminData = {
+    email: "admin@gmail.com",
+    password: "admin123",
+    first_name: "Admin",
+    last_name: "User",
+    role: "ADMIN",
+    is_active: true,
+  };
+  try {
+    // Check if admin already exists
+    const existingAdmin = await prisma.user.findUnique({
+      where: { email: adminData.email },
+    });
+    if (existingAdmin) {
+      return res.status(400).json({ error: "Admin already exists" });
+    }
+    // Create admin user
+    const admin = await prisma.user.create({
+      data: adminData,
+    });
+    res.status(201).json({
+      message: "Admin created successfully",
+      admin: {
+        email: admin.email,
+        first_name: admin.first_name,
+        last_name: admin.last_name,
+        role: admin.role,
+      },
+    });
+  } catch (error) {
+    console.error("Error creating admin:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -189,6 +249,17 @@ app.get("/country", async (req, res) => {
   try {
     const countries = await prisma.country.findMany({
       orderBy: { name: "asc" }, // Sort countries by name in ascending order
+      include: {
+        City: {
+          include: {
+            Place: {
+              include: {
+                lockers: true,
+              },
+            },
+          },
+        },
+      },
     });
     console.log(countries);
     res.status(200).json(countries);
@@ -386,6 +457,118 @@ app.get("/locker", async (req, res) => {
   } catch (error) {
     console.error("Error fetching lockers:", error);
     res.status(500).json({ error: "Failed to fetch lockers" });
+  }
+});
+
+// ---------------- Booking Routes -------------
+app.post("/booking", requireAuth, async (req, res) => {
+  try {
+    // Check if the locker is available in the specified date range
+    const { lockerId, startDate, endDate } = req.body;
+    const existingBooking = await prisma.booking.findFirst({
+      where: {
+        status: "PENDING",
+        lockerId,
+        AND: [
+          {
+            startDate: { lt: new Date(endDate), gte: new Date(startDate) },
+          },
+          {
+            endDate: { gt: new Date(startDate), lte: new Date(endDate) },
+          },
+        ],
+      },
+    });
+    if (existingBooking) {
+      return res
+        .status(400)
+        .json({ error: "Locker is already booked for the selected dates." });
+    }
+    const user = await prisma.user.findUnique({
+      where: { id: req.user },
+    });
+    // Create the booking
+    const booking = await prisma.booking.create({
+      data: {
+        locker: {
+          connect: { id: lockerId },
+        },
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+        user: {
+          connect: { id: user.id },
+        },
+      },
+    });
+    res.status(201).json({
+      message: "Booking created successfully",
+    });
+  } catch (error) {
+    console.error("Error creating booking:", error);
+    res.status(500).json("Failed to create booking");
+  }
+});
+
+app.get("/booking", requireAuth, async (req, res) => {
+  try {
+    const isAdmin = req.query.is_admin === "1";
+
+    if (isAdmin) {
+      const bookings = await prisma.booking.findMany({
+        include: {
+          user: true,
+          locker: {
+            include: {
+              Place: {
+                include: {
+                  city: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { startDate: "asc" },
+      });
+      return res.status(200).json(bookings);
+    }
+
+    const bookings = await prisma.booking.findMany({
+      where: { userId: req.user.id }, // Make sure req.user is set correctly
+      include: {
+        locker: {
+          include: {
+            Place: {
+              include: {
+                city: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { startDate: "asc" },
+    });
+
+    return res.status(200).json(bookings);
+  } catch (error) {
+    console.error("Error fetching bookings:", error);
+    return res.status(500).json({ error: "Failed to fetch bookings" });
+  }
+});
+
+app.put("/booking", requireAuth, async (req, res) => {
+  try {
+    const { id, status } = req.body;
+
+    // Update the booking status
+    const updatedBooking = await prisma.booking.update({
+      where: { id },
+      data: { status },
+    });
+
+    res.status(200).json(updatedBooking);
+  } catch (error) {
+    console.error("Error updating booking:", error);
+    res.status(500).json({ error: "Failed to update booking" });
   }
 });
 
