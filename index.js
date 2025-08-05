@@ -22,6 +22,7 @@ var storage = multer.diskStorage({
 });
 var upload = multer({ storage: storage });
 const cookieParser = require("cookie-parser");
+const e = require("express");
 app.use(cookieParser());
 
 // Middleware to parse JSON bodies
@@ -92,6 +93,11 @@ app.post("/login", async (req, res) => {
     console.error("Error during login:", error);
     res.status(500).json({ error: "Internal server error" });
   }
+});
+
+app.post("/logout", (req, res) => {
+  res.clearCookie("token");
+  res.status(200).json({ message: "Logout successful" });
 });
 
 app.get("/create-admin", async (req, res) => {
@@ -269,6 +275,40 @@ app.get("/country", async (req, res) => {
   }
 });
 
+app.get("/country-dashboard", async (req, res) => {
+  try {
+    const countries = await prisma.country.findMany({
+      orderBy: { name: "asc" },
+      where: {
+        City: {
+          some: {
+            Place: {
+              some: {}, // at least one place in the city
+            },
+          },
+        },
+      },
+      include: {
+        City: {
+          include: {
+            Place: {
+              include: {
+                lockers: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    console.log(countries);
+    res.status(200).json(countries);
+  } catch (error) {
+    console.error("Error fetching countries:", error);
+    res.status(500).json({ error: "Failed to fetch countries" });
+  }
+});
+
 // -------------- City Routes -------------
 app.post("/city", async (req, res) => {
   let data = { ...req.body };
@@ -367,11 +407,22 @@ app.delete("/place", async (req, res) => {
 });
 
 app.get("/place", async (req, res) => {
+  const { country } = req.query;
   try {
     const places = await prisma.place.findMany({
-      include: { city: true, lockers: true }, // Include city details in the response
-      orderBy: { name: "asc" }, // Sort places by name in ascending order
+      include: { city: true, lockers: true },
+      orderBy: { name: "asc" },
+      where: country
+        ? {
+            city: {
+              Country: {
+                id: country,
+              },
+            },
+          }
+        : {}, // no filter if no country
     });
+
     res.status(200).json(places);
   } catch (error) {
     console.error("Error fetching places:", error);
